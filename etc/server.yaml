@@ -1,0 +1,2 @@
+TCPServer: 0.0.0.0:8080
+MongoURI: mongodb://admin:admin@mongodb:27017

@@ -1,0 +1,17 @@
+version: "3.6"
+
+services:
+  gt06:
+    image: gt06
+    container_name: gt06
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    networks:
+      - gt06
+
+networks:
+  gt06:
+    external: true
