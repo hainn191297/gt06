@@ -6,27 +6,53 @@ import (
 	"gt06/database"
 	"time"
 
+	"github.com/gocql/gocql"
 	"github.com/zeromicro/go-zero/core/logx"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type ServiceContext struct {
-	Config       config.Config
-	MongoDBModel database.MongoDBModel
+	Config        config.Config
+	MongoDBModel  database.MongoDBModel
+	ScyllaDBModel database.ScyllaDBModel
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
-	client, err := initMongoClient(c.MongoURI)
-	if err != nil {
-		logx.Errorf("Failed to initialize MongoClient: %v", err)
-		return nil
+	svc := &ServiceContext{
+		Config: c,
 	}
 
-	return &ServiceContext{
-		Config:       c,
-		MongoDBModel: database.NewMongoDBModel(client, "gps"), // TODO: use config dbname instead
+	// Initialize MongoDB if configured
+	if c.MongoURI != "" {
+		client, err := initMongoClient(c.MongoURI)
+		if err != nil {
+			logx.Errorf("Failed to initialize MongoClient: %v", err)
+		} else {
+			dbName := c.DBName
+			if dbName == "" {
+				dbName = "gt06"
+			}
+			svc.MongoDBModel = database.NewMongoDBModel(client, dbName)
+		}
 	}
+
+	// Initialize ScyllaDB if configured
+	if len(c.ScyllaHosts) > 0 {
+		consistency := gocql.LocalOne // Default consistency
+		if c.ScyllaConsistency != "" {
+			parsed := gocql.ParseConsistency(c.ScyllaConsistency)
+			consistency = parsed
+		}
+		scyllaModel, err := database.NewScyllaDBModel(c.ScyllaHosts, c.ScyllaKeyspace, consistency)
+		if err != nil {
+			logx.Errorf("Failed to initialize ScyllaDBModel: %v", err)
+		} else {
+			svc.ScyllaDBModel = scyllaModel
+		}
+	}
+
+	return svc
 }
 
 // initMongoClient sets up the MongoDB client

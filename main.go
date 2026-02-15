@@ -7,13 +7,14 @@ import (
 	"gt06/tcp"
 )
 
-var configFile = flag.String("server config", "etc/server.yaml", "the config file")
+var configFile = flag.String("c", "etc/server.yaml", "the config file path")
 
 func main() {
-	c := config.Config{}
+	flag.Parse()
 
+	c := config.Default()
 	conf.MustLoad(*configFile, &c)
-	tcp := tcp.NewTCPServer("0.0.0.0:8000")
 
-	tcp.Start(c)
+	tcpServer := tcp.NewTCPServer(c.TCPServer)
+	tcpServer.Start(c)
 }

@@ -1,2 +1,11 @@
-TCPServer: 0.0.0.0:8080
+TCPServer: 0.0.0.0:8000
 MongoURI: mongodb://admin:admin@mongodb:27017
+DBName: gt06
+LogLevel: info
+Timeout: 10
+
+# ScyllaDB Configuration
+ScyllaHosts:
+  - localhost:9042
+ScyllaKeyspace: gt06
+ScyllaConsistency: LOCAL_ONE
