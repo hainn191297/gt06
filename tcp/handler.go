@@ -74,12 +74,39 @@ func (ph *ProtocolHandler) OnTraffic(c gnet.Conn) (action gnet.Action) {
 			action = gnet.Close
 		}
 	}()
-	// get data from packet
-	data, _ := c.Peek(-1)
+	// Peek header to determine packet size (4 bytes: 0x78 0x78 length protocol)
+	headerData, err := c.Peek(4)
+	if err != nil || len(headerData) < 4 {
+		if err != nil {
+			logx.Errorf("Failed to peek header: %v", err)
+		}
+		return gnet.None
+	}
+
+	// Extract packet length from byte 2
+	packetLength := int(headerData[2])
+	if packetLength < 5 || packetLength > 255 {
+		logx.Errorf("Invalid packet length: %d", packetLength)
+		// Try to skip this invalid packet
+		return gnet.None
+	}
+
+	// Total packet size: header(2) + length(1) + protocol(1) + info(length-5) + serial(2) + crc(2) + stop(2)
+	// Which simplifies to: 10 + (length - 5) = length + 5
+	totalPacketSize := packetLength + 5
+
+	// Peek exactly the amount needed for this packet
+	data, err := c.Peek(totalPacketSize)
+	if err != nil || len(data) < totalPacketSize {
+		// Not enough data yet, wait for more
+		return gnet.None
+	}
 
 	packet, err := protocol.ParseAndValidatePacket(data)
 	if err != nil {
-		logx.Error(err)
+		logx.Errorf("Failed to parse packet: %v", err)
+		// Discard invalid data to prevent infinite loop
+		c.Discard(1)
 		return gnet.None
 	}
 
@@ -93,14 +120,14 @@ func (ph *ProtocolHandler) OnTraffic(c gnet.Conn) (action gnet.Action) {
 	var service services.PacketService
 
 	switch packet.ProtocolNumber {
-	case 0x01: // Login Packet
+	case protocol.ProtocolLogin:
 		service = services.NewLoginDeviceService(session.Context, ph.svc)
-	case 0x13, 0x23: // Heartbeat Packet (Disassemble alarm/Fall alarm)
+	case protocol.ProtocolHeartbeat, protocol.ProtocolHeartbeatAlt:
 		service = services.NewHeartbeatService(session.Context)
-	case 0x12, 0x22: // Location Packet (/UTC)
-		service = services.NewLocationService(session.Context)
-	case 0x26:
-		service = services.NewAlarmService(session.Context)
+	case protocol.ProtocolLocation, protocol.ProtocolLocationUTC:
+		service = services.NewLocationService(session.Context, ph.svc)
+	case protocol.ProtocolAlarm:
+		service = services.NewAlarmService(session.Context, ph.svc)
 	default:
 		logx.WithContext(session.Context).Errorf("Unknown Protocol Number: 0x%02X", packet.ProtocolNumber)
 		return gnet.Close
@@ -120,8 +147,8 @@ func (ph *ProtocolHandler) OnTraffic(c gnet.Conn) (action gnet.Action) {
 		}
 	}
 
-	// discard received data after sending response
-	c.Discard(len(data))
+	// discard only this packet (not all buffered data) to allow processing of next packets
+	c.Discard(totalPacketSize)
 	// logx.Info(common.ConvertToHexString(out))
 	return gnet.None
 }

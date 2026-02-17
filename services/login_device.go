@@ -43,10 +43,15 @@ func (s *LoginDeviceService) ProcessPacket(packet *protocol.CONCOXPacket) (buf [
 	}
 
 	// build login info
-	gmt, region, language, _ := decodeRawTimeZone(infoContent.TimeZoneLanguage)
+	gmt, region, language, err := decodeRawTimeZone(infoContent.TimeZoneLanguage)
+	if err != nil {
+		s.log.Errorf("Failed to decode timezone: %w", err)
+		return nil, fmt.Errorf("invalid timezone data: %w", err)
+	}
+
 	document := bson.M{
 		"terminal_id":        common.ConvertToHexString(infoContent.TerminalID[:]),
-		"model_code":         common.ConvertToHexString(infoContent.TerminalID[:]),
+		"model_code":         common.ConvertToHexString(infoContent.ModelCode[:]),
 		"time_zone_language": infoContent.TimeZoneLanguage,
 		"gmt":                gmt,
 		"region":             region,
@@ -54,25 +59,23 @@ func (s *LoginDeviceService) ProcessPacket(packet *protocol.CONCOXPacket) (buf [
 		"created_at":         time.Now(),
 	}
 
-	ret, _ := s.svc.MongoDBModel.Insert(s.context, "CONCOXLoginInfoContent", document)
+	ret, err := s.svc.MongoDBModel.Insert(s.context, "CONCOXLoginInfoContent", document)
+	if err != nil {
+		s.log.Errorf("Failed to insert device login info: %w", err)
+		return nil, fmt.Errorf("failed to save device info: %w", err)
+	}
 
-	// logx.Info(ret, err)
-
-	// get
+	// get inserted document
 	filter := bson.M{"_id": ret.InsertedID}
-	a, _ := s.svc.MongoDBModel.Get(s.context, "CONCOXLoginInfoContent", filter)
+	a, err := s.svc.MongoDBModel.Get(s.context, "CONCOXLoginInfoContent", filter)
+	if err != nil {
+		s.log.Errorf("Failed to retrieve inserted device: %w", err)
+		return nil, fmt.Errorf("failed to retrieve device info: %w", err)
+	}
 
-	logx.Infof(" %+v", a)
+	s.log.Infof("Device login info saved: %+v", a)
 
-	// parse data
-
-	v := make(map[string]interface{}, 0)
-	common.ParseBsonMReflect(a, &v)
-
-	logx.Info(v)
 	buildLoginInfo := protocol.BuildCONCOXResponseLogin(packet)
-
-	bson.Marshal(a)
 	return buildLoginInfo, nil
 }
 
